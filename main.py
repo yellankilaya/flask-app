@@ -1,10 +1,7 @@
 from datetime import datetime
-
-from flask import Flask, render_template, request, redirect, url_for, send_file, send_from_directory, flash
-from werkzeug.utils import secure_filename
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
 from google.cloud import speech
 from google.cloud import texttospeech
-
 import os
 
 app = Flask(__name__)
@@ -15,44 +12,43 @@ ALLOWED_EXTENSIONS = {'wav'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs('tts', exist_ok=True)  # Ensure tts folder exists as well
 
 def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def get_files():
+def get_files(folder):
     files = []
-    for filename in os.listdir(UPLOAD_FOLDER):
+    for filename in os.listdir(folder):
         if allowed_file(filename):
             files.append(filename)
-            print(filename)
     files.sort(reverse=True)
     return files
 
 @app.route('/')
 def index():
-    files = get_files()
-    return render_template('index.html', files=files)
+    files = get_files(UPLOAD_FOLDER)  # Files from the 'uploads' folder
+    tts_files = get_files('tts')  # Files from the 'tts' folder
+    return render_template('index.html', files=files, tts_files=tts_files)
 
 @app.route('/upload', methods=['POST'])
 def upload_audio():
     if 'audio_data' not in request.files:
         flash('No audio data')
         return redirect(request.url)
+    
     file = request.files['audio_data']
     if file.filename == '':
         flash('No selected file')
         return redirect(request.url)
+    
     if file:
         filename = datetime.now().strftime("%Y%m%d-%I%M%S%p") + '.wav'
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
 
         # Google Speech-to-Text API integration
-        from google.cloud import speech
-
         client = speech.SpeechClient()
-
         with open(file_path, 'rb') as audio_file:
             content = audio_file.read()
 
@@ -72,24 +68,15 @@ def upload_audio():
 
     return redirect('/')  # success
 
-
-@app.route('/upload/<filename>')
-def get_file(filename):
-    return send_file(filename)
-
-    
 @app.route('/upload_text', methods=['POST'])
 def upload_text():
     text = request.form['text']
-    print(text)
 
     if not text.strip():
         flash("Text input is empty")
         return redirect(request.url)
 
     # Google Text-to-Speech API integration
-    from google.cloud import texttospeech
-
     client = texttospeech.TextToSpeechClient()
 
     input_text = texttospeech.SynthesisInput(text=text)
@@ -98,9 +85,8 @@ def upload_text():
 
     response = client.synthesize_speech(input=input_text, voice=voice, audio_config=audio_config)
 
-    # Save the audio to a file
+    # Save the audio to a file in the 'tts' folder
     tts_folder = 'tts'
-    os.makedirs(tts_folder, exist_ok=True)
     filename = datetime.now().strftime("%Y%m%d-%I%M%S%p") + '.wav'
     file_path = os.path.join(tts_folder, filename)
 
@@ -109,14 +95,21 @@ def upload_text():
 
     return redirect('/')  # success
 
+# Route to serve files from either uploads or tts folder
+@app.route('/<folder>/<filename>')
+def uploaded_file(folder, filename):
+    if folder not in ['uploads', 'tts']:
+        return "Invalid folder", 404
 
-@app.route('/script.js',methods=['GET'])
+    folder_path = os.path.join(folder, filename)
+    if os.path.exists(folder_path):
+        return send_from_directory(folder, filename)
+    else:
+        return "File not found", 404
+
+@app.route('/script.js', methods=['GET'])
 def scripts_js():
-    return send_file('./script.js')
-
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    return send_from_directory('', 'script.js')
 
 if __name__ == '__main__':
     app.run(debug=True)

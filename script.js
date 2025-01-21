@@ -45,12 +45,10 @@ recordButton.addEventListener('click', () => {
                 throw new Error('Network response was not ok');
             }
             location.reload(); // Force refresh
-
             return response.text();
         })
         .then(data => {
             console.log('Audio uploaded successfully:', data);
-            // Redirect to playback page or display success message
         })
         .catch(error => {
             console.error('Error uploading audio:', error);
